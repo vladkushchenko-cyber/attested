@@ -66,6 +66,33 @@ def _p_value_out_of_range(intent, ctx, params):
     return False
 
 
+def _p_has_known_failure_feature(intent, ctx, params):
+    """The predicate a LEARNED rule uses.
+
+    True when this claim's source sentence carries a feature the agent has demonstrably
+    got wrong. Calibrating on single features rather than whole shapes is what makes the
+    learning transfer: a full conjunction is unique to one sentence, while a feature such
+    as `range_form` recurs across many. Imported lazily because learn.py imports this
+    module.
+    """
+    from .learn import features_of
+    quote = (intent["payload"].get("provenance") or {}).get("sourceQuote") or ""
+    return params.get("feature") in features_of(quote)
+
+
+def _p_agent_proposes_allow(intent, ctx, params):
+    """The ratchet, in policy form.
+
+    An agent proposing a rule whose effect is `allow` is an agent trying to widen its own
+    permissions. Denied here, and also refused by the `policies` validator, so the rule
+    holds even if this predicate were removed.
+    """
+    if intent["action"] != "policy.propose":
+        return False
+    return (intent["payload"].get("effect") == "allow"
+            and ctx["identity"].get("kind") != "human")
+
+
 def _p_always(intent, ctx, params):
     return True
 
@@ -78,6 +105,8 @@ PREDICATES = {
     "rankable_by_agent": _p_rankable_by_agent,
     "administrative_supplement": _p_administrative_supplement,
     "value_out_of_range": _p_value_out_of_range,
+    "has_known_failure_feature": _p_has_known_failure_feature,
+    "agent_proposes_allow": _p_agent_proposes_allow,
     "always": _p_always,
 }
 

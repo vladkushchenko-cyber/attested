@@ -31,6 +31,7 @@ python demo/demo1_gate.py               # Q1: enforcement before the action
 python demo/demo2_audit.py              # Q2: reconstruction and chain integrity
 python demo/demo3_halt.py               # Q3: halt in flight, then compensating revert
 python demo/demo4_crosssystem.py        # real actions across real systems
+python demo/demo5_learn.py              # learning from mistakes, measured on held-out data
 ```
 
 Against Atlas:
@@ -156,6 +157,93 @@ chain after revert: {'ok': True, 'entries': 12}
 Downstream effects already dispatched are marked `compensated` rather than claimed as
 undone, because the outside world was not rewound.
 
+## Learning from its own mistakes, without leaving the audit layer
+
+The agent gets no memory store. It gets a mirror: the ledger already records every case
+where a human corrected it, including the machine's original value. That is a labelled
+dataset of its own errors which is already provenanced, already attributable to the human
+who made each correction, and already tamper-evident.
+
+`demo5_learn.py` runs it end to end. The 20 hand-audited records are split
+deterministically into TRAIN and TEST; the agent learns only from TRAIN and is measured on
+TEST, which it never sees while learning. Without that split the demonstration would only
+show memorisation.
+
+**Step 1, mine.** It reads its own audit trail and diagnoses the failure modes:
+
+```
+mined 6 applied writes, of which 3 were changed by a human
+  1x ci_leakage             a confidence-interval bound read as a result
+  1x adjacent_metric_theft  a neighbouring metric's figure attributed to sensitivity
+  1x range_split            a range covering both metrics split into two false values
+```
+
+**Step 2, calibrate.** It measures its accuracy per feature of the source sentence:
+
+```
+  0%  (0/3)  range_form
+  0%  (0/2)  third_metric_near
+ 25%  (1/4)  multiple_percentages
+ 50%  (1/2)  ci_present
+ 66%  (2/3)  number_precedes_metric
+```
+
+An earlier version calibrated on the whole feature combination and learned nothing that
+transferred, because every real sentence carries a slightly different combination so no
+shape ever recurred and no rule was ever proposed. The signal that generalises lives in the
+individual features: `range_form` appeared in three separate wrong readings while each
+conjunction containing it was unique.
+
+**Step 3, propose, but not enact.** It writes five tightened rules, all INACTIVE. Two
+constraints are enforced by the database rather than by convention:
+
+```
+The ratchet:          agent proposes a rule with effect "allow"
+                      -> DENY (deny_agent_loosening)
+No self-activation:   agent tries to activate its own rule
+                      -> PermissionError: not a human identity
+Then:                 human:ester activates it
+                      -> active=True approvedBy=human:ester
+```
+
+The `policies` validator refuses a loosening proposal as well, and refuses an active
+learned rule that names no approving human, so both constraints survive the policy rules
+themselves being deleted.
+
+**Step 4, measure on held-out data, and report the cost.**
+
+```
+                                      learning off   learning on
+wrong figures asserted into the record           2             0
+wrong figures caught and escalated               0             2
+correct figures asserted                         2             1
+correct figures needlessly escalated             0             1
+```
+
+Two wrong figures prevented from landing, at the cost of one correct figure sent to a human
+for no reason. Both numbers are printed, because escalating costs a reviewer's time and a
+system that learns to escalate everything has not improved, it has stopped working.
+
+**Step 5, prove it was the learned rule.** The ledger names which rule fired on which
+record, and the rule carries its own provenance:
+
+```
+ruleId          : learned_escalate_multiple_percentages
+effect          : escalate          (a learned rule can only tighten)
+proposedBy      : agent:curator-v3
+approvedBy      : human:ester
+observedAccuracy: 0.25
+learnedFrom     : 4 ledger entries
+```
+
+A reviewer can ask of any learned rule: which corrections produced this, who made them, and
+what measured accuracy justified it. All four are fields on the rule.
+
+Note this stays inside problem statement 1 deliberately. Learning here is expressed as
+policy derived from audit, enforced by the same gate as everything else. There is no
+separate memory store, no vector retrieval and no tenant scoping, because those belong to
+statement 2 and the hackathon requires exactly one.
+
 ## Real actions across real systems
 
 All four verified reachable at build time, via `sources.reachable()`:
@@ -188,6 +276,7 @@ transitions are ledgered.
 | `controls` | per-run kill switch | **change stream** |
 | `runs` | run lifecycle and counters | `$jsonSchema` |
 | `outbox` | downstream effects, sent vs confirmed | `$jsonSchema` |
+| `calibration` | measured accuracy per source-sentence feature, mined from the ledger | `$jsonSchema` |
 
 ## Implementation notes
 

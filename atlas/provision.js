@@ -57,7 +57,9 @@ if (db.getCollectionNames().indexOf('identities') === -1) {
             "alert.send",
             "run.halt",
             "claim.verify",
-            "revert.apply"
+            "revert.apply",
+            "policy.propose",
+            "policy.activate"
           ]
         }
       },
@@ -152,7 +154,9 @@ if (db.getCollectionNames().indexOf('identities') === -1) {
             "alert.send",
             "run.halt",
             "claim.verify",
-            "revert.apply"
+            "revert.apply",
+            "policy.propose",
+            "policy.activate"
           ]
         }
       },
@@ -199,6 +203,154 @@ if (db.getCollectionNames().indexOf('identities') === -1) {
   print("collMod identities: validator updated");
 }
 
+// ---------------------------------------------------------------- calibration
+if (db.getCollectionNames().indexOf('calibration') === -1) {
+  db.createCollection('calibration', {
+    validator: {
+  "$jsonSchema": {
+    "bsonType": "object",
+    "title": "Observed accuracy per source-sentence shape, mined from corrections.",
+    "required": [
+      "_id",
+      "signature",
+      "scope",
+      "features",
+      "observed",
+      "corrected",
+      "accuracy",
+      "failureModes",
+      "updatedAt"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "_id": {
+        "bsonType": "string"
+      },
+      "signature": {
+        "bsonType": "string"
+      },
+      "scope": {
+        "enum": [
+          "feature",
+          "conjunction"
+        ]
+      },
+      "features": {
+        "bsonType": "array",
+        "items": {
+          "bsonType": "string"
+        }
+      },
+      "observed": {
+        "bsonType": "int",
+        "minimum": 1
+      },
+      "corrected": {
+        "bsonType": "int",
+        "minimum": 0
+      },
+      "accuracy": {
+        "bsonType": "double",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "failureModes": {
+        "bsonType": "object"
+      },
+      "learnedFrom": {
+        "bsonType": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "bsonType": "string"
+        }
+      },
+      "updatedAt": {
+        "bsonType": "date"
+      }
+    }
+  }
+},
+    validationLevel: "strict",
+    validationAction: "error"
+  });
+  print("created calibration with $jsonSchema");
+} else {
+  db.runCommand({
+    collMod: 'calibration',
+    validator: {
+  "$jsonSchema": {
+    "bsonType": "object",
+    "title": "Observed accuracy per source-sentence shape, mined from corrections.",
+    "required": [
+      "_id",
+      "signature",
+      "scope",
+      "features",
+      "observed",
+      "corrected",
+      "accuracy",
+      "failureModes",
+      "updatedAt"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "_id": {
+        "bsonType": "string"
+      },
+      "signature": {
+        "bsonType": "string"
+      },
+      "scope": {
+        "enum": [
+          "feature",
+          "conjunction"
+        ]
+      },
+      "features": {
+        "bsonType": "array",
+        "items": {
+          "bsonType": "string"
+        }
+      },
+      "observed": {
+        "bsonType": "int",
+        "minimum": 1
+      },
+      "corrected": {
+        "bsonType": "int",
+        "minimum": 0
+      },
+      "accuracy": {
+        "bsonType": "double",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "failureModes": {
+        "bsonType": "object"
+      },
+      "learnedFrom": {
+        "bsonType": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "bsonType": "string"
+        }
+      },
+      "updatedAt": {
+        "bsonType": "date"
+      }
+    }
+  }
+},
+    validationLevel: "strict",
+    validationAction: "error"
+  });
+  print("collMod calibration: validator updated");
+}
+
 // ---------------------------------------------------------------- policies
 if (db.getCollectionNames().indexOf('policies') === -1) {
   db.createCollection('policies', {
@@ -242,6 +394,8 @@ if (db.getCollectionNames().indexOf('policies') === -1) {
             "alert.send",
             "claim.verify",
             "revert.apply",
+            "policy.propose",
+            "policy.activate",
             "*"
           ]
         }
@@ -274,10 +428,100 @@ if (db.getCollectionNames().indexOf('policies') === -1) {
       "active": {
         "bsonType": "bool"
       },
+      "proposedBy": {
+        "bsonType": [
+          "string",
+          "null"
+        ]
+      },
+      "learnedFrom": {
+        "bsonType": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "bsonType": "string"
+        }
+      },
+      "observedAccuracy": {
+        "bsonType": [
+          "double",
+          "null"
+        ],
+        "minimum": 0,
+        "maximum": 1
+      },
+      "approvedBy": {
+        "bsonType": [
+          "string",
+          "null"
+        ]
+      },
       "createdAt": {
         "bsonType": "date"
       }
-    }
+    },
+    "allOf": [
+      {
+        "title": "A learned rule may only tighten. Agents cannot propose an allow.",
+        "anyOf": [
+          {
+            "properties": {
+              "proposedBy": {
+                "bsonType": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "proposedBy": {
+                "bsonType": "string"
+              },
+              "effect": {
+                "enum": [
+                  "deny",
+                  "escalate"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "title": "An active learned rule must name the human who approved it.",
+        "anyOf": [
+          {
+            "properties": {
+              "proposedBy": {
+                "bsonType": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "active": {
+                "enum": [
+                  false
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "active": {
+                "enum": [
+                  true
+                ]
+              },
+              "approvedBy": {
+                "bsonType": "string",
+                "minLength": 3
+              }
+            }
+          }
+        ]
+      }
+    ]
   }
 },
     validationLevel: "strict",
@@ -327,6 +571,8 @@ if (db.getCollectionNames().indexOf('policies') === -1) {
             "alert.send",
             "claim.verify",
             "revert.apply",
+            "policy.propose",
+            "policy.activate",
             "*"
           ]
         }
@@ -359,10 +605,100 @@ if (db.getCollectionNames().indexOf('policies') === -1) {
       "active": {
         "bsonType": "bool"
       },
+      "proposedBy": {
+        "bsonType": [
+          "string",
+          "null"
+        ]
+      },
+      "learnedFrom": {
+        "bsonType": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "bsonType": "string"
+        }
+      },
+      "observedAccuracy": {
+        "bsonType": [
+          "double",
+          "null"
+        ],
+        "minimum": 0,
+        "maximum": 1
+      },
+      "approvedBy": {
+        "bsonType": [
+          "string",
+          "null"
+        ]
+      },
       "createdAt": {
         "bsonType": "date"
       }
-    }
+    },
+    "allOf": [
+      {
+        "title": "A learned rule may only tighten. Agents cannot propose an allow.",
+        "anyOf": [
+          {
+            "properties": {
+              "proposedBy": {
+                "bsonType": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "proposedBy": {
+                "bsonType": "string"
+              },
+              "effect": {
+                "enum": [
+                  "deny",
+                  "escalate"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "title": "An active learned rule must name the human who approved it.",
+        "anyOf": [
+          {
+            "properties": {
+              "proposedBy": {
+                "bsonType": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "active": {
+                "enum": [
+                  false
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "active": {
+                "enum": [
+                  true
+                ]
+              },
+              "approvedBy": {
+                "bsonType": "string",
+                "minLength": 3
+              }
+            }
+          }
+        ]
+      }
+    ]
   }
 },
     validationLevel: "strict",
@@ -406,7 +742,9 @@ if (db.getCollectionNames().indexOf('intents') === -1) {
           "approval.publish",
           "alert.send",
           "claim.verify",
-          "revert.apply"
+          "revert.apply",
+          "policy.propose",
+          "policy.activate"
         ]
       },
       "target": {
@@ -472,7 +810,9 @@ if (db.getCollectionNames().indexOf('intents') === -1) {
           "approval.publish",
           "alert.send",
           "claim.verify",
-          "revert.apply"
+          "revert.apply",
+          "policy.propose",
+          "policy.activate"
         ]
       },
       "target": {
@@ -2027,6 +2367,16 @@ db.outbox.createIndex({
   "runId": 1,
   "state": 1
 }, {});
+db.calibration.createIndex({
+  "signature": 1,
+  "scope": 1
+}, {
+  "unique": true
+});
+db.calibration.createIndex({
+  "scope": 1,
+  "accuracy": 1
+}, {});
 
 // ---------------------------------------------------------------- seed identities
 db.identities.replaceOne({_id: 'agent:curator-v3'}, Object.assign({
@@ -2039,7 +2389,8 @@ db.identities.replaceOne({_id: 'agent:curator-v3'}, Object.assign({
     "rung.assert",
     "record.create",
     "approval.publish",
-    "alert.send"
+    "alert.send",
+    "policy.propose"
   ],
   "scope": {
     "indications": [
@@ -2049,7 +2400,7 @@ db.identities.replaceOne({_id: 'agent:curator-v3'}, Object.assign({
       "US",
       "CA"
     ],
-    "maxActionsPerRun": 25
+    "maxActionsPerRun": 60
   },
   "active": true
 }, {createdAt: new Date()}), {upsert: true});
@@ -2104,7 +2455,8 @@ db.identities.replaceOne({_id: 'human:ester'}, Object.assign({
     "rung.assert",
     "record.create",
     "run.halt",
-    "revert.apply"
+    "revert.apply",
+    "policy.activate"
   ],
   "scope": {
     "indications": [
@@ -2129,7 +2481,8 @@ db.identities.replaceOne({_id: 'human:compliance'}, Object.assign({
   "allowedActions": [
     "run.halt",
     "revert.apply",
-    "claim.verify"
+    "claim.verify",
+    "policy.activate"
   ],
   "scope": {
     "indications": [
@@ -2150,6 +2503,20 @@ db.identities.replaceOne({_id: 'human:compliance'}, Object.assign({
 // ---------------------------------------------------------------- seed policies
 // Each rule carries the measurement that justifies it. A rule nobody can justify is a
 // rule nobody will maintain, and grounding is the first thing a compliance reader asks for.
+db.policies.replaceOne({_id: 'pol:deny_agent_loosening:1'}, Object.assign({
+  "_id": "pol:deny_agent_loosening:1",
+  "ruleId": "deny_agent_loosening",
+  "version": 1,
+  "appliesTo": [
+    "policy.propose"
+  ],
+  "effect": "deny",
+  "predicate": "agent_proposes_allow",
+  "params": {},
+  "reason": "An agent may not propose a rule that widens its own permissions. Learned rules may only tighten.",
+  "grounding": "The ratchet. An agent that can learn its way to more permissions has no ceiling, so learning is restricted to deny and escalate. The policies validator refuses a loosening proposal as well, so the constraint survives this rule being deleted.",
+  "active": true
+}, {createdAt: new Date()}), {upsert: true});
 db.policies.replaceOne({_id: 'pol:require_source_quote:1'}, Object.assign({
   "_id": "pol:require_source_quote:1",
   "ruleId": "require_source_quote",

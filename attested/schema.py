@@ -30,6 +30,7 @@ IDENTITIES = {
                     "claim.write", "rung.assert", "record.create",
                     "approval.publish", "alert.send", "run.halt",
                     "claim.verify", "revert.apply",
+                    "policy.propose", "policy.activate",
                 ]},
             },
             # Scope is enforced before the policy body is read. An empty indication list
@@ -66,7 +67,8 @@ POLICIES = {
                 "bsonType": "array", "minItems": 1,
                 "items": {"enum": [
                     "claim.write", "rung.assert", "record.create",
-                    "approval.publish", "alert.send", "claim.verify", "revert.apply", "*",
+                    "approval.publish", "alert.send", "claim.verify", "revert.apply",
+                    "policy.propose", "policy.activate", "*",
                 ]},
             },
             "effect": {"enum": ["deny", "escalate", "allow"]},
@@ -80,7 +82,65 @@ POLICIES = {
             # nobody will maintain.
             "grounding": {"bsonType": "string", "minLength": 10},
             "active": {"bsonType": "bool"},
+            # A learned rule carries its own provenance: which agent proposed it, the
+            # ledger entries it generalised from, and the measured accuracy that justified
+            # it. A rule the system wrote for itself needs MORE provenance than one a human
+            # wrote, not less.
+            "proposedBy": {"bsonType": ["string", "null"]},
+            "learnedFrom": {"bsonType": ["array", "null"],
+                            "items": {"bsonType": "string"}},
+            "observedAccuracy": {"bsonType": ["double", "null"],
+                                 "minimum": 0, "maximum": 1},
+            "approvedBy": {"bsonType": ["string", "null"]},
             "createdAt": {"bsonType": "date"},
+        },
+        "allOf": [
+            {
+                "title": "A learned rule may only tighten. Agents cannot propose an allow.",
+                "anyOf": [
+                    {"properties": {"proposedBy": {"bsonType": "null"}}},
+                    {"properties": {"proposedBy": {"bsonType": "string"},
+                                    "effect": {"enum": ["deny", "escalate"]}}},
+                ],
+            },
+            {
+                "title": "An active learned rule must name the human who approved it.",
+                "anyOf": [
+                    {"properties": {"proposedBy": {"bsonType": "null"}}},
+                    {"properties": {"active": {"enum": [False]}}},
+                    {"properties": {"active": {"enum": [True]},
+                                    "approvedBy": {"bsonType": "string", "minLength": 3}}},
+                ],
+            },
+        ],
+    }
+}
+
+# -------------------------------------------------------------------------- calibration
+# What the agent has learned about its own failure modes, derived from the ledger. This is
+# the training signal: not a separate memory store, but a reading of the audit trail.
+CALIBRATION = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "title": "Observed accuracy per source-sentence shape, mined from corrections.",
+        "required": ["_id", "signature", "scope", "features", "observed", "corrected",
+                     "accuracy", "failureModes", "updatedAt"],
+        "additionalProperties": False,
+        "properties": {
+            "_id": {"bsonType": "string"},
+            "signature": {"bsonType": "string"},
+            # "feature" rows are what rules are proposed from, because a single feature
+            # recurs across sentences. "conjunction" rows are kept for diagnosis only:
+            # a full feature combination is unique per sentence and does not transfer.
+            "scope": {"enum": ["feature", "conjunction"]},
+            "features": {"bsonType": "array", "items": {"bsonType": "string"}},
+            "observed": {"bsonType": "int", "minimum": 1},
+            "corrected": {"bsonType": "int", "minimum": 0},
+            "accuracy": {"bsonType": "double", "minimum": 0, "maximum": 1},
+            "failureModes": {"bsonType": "object"},
+            "learnedFrom": {"bsonType": ["array", "null"],
+                            "items": {"bsonType": "string"}},
+            "updatedAt": {"bsonType": "date"},
         },
     }
 }
@@ -99,6 +159,7 @@ INTENTS = {
             "action": {"enum": [
                 "claim.write", "rung.assert", "record.create",
                 "approval.publish", "alert.send", "claim.verify", "revert.apply",
+                "policy.propose", "policy.activate",
             ]},
             "target": {
                 "bsonType": "object",
@@ -351,6 +412,7 @@ OUTBOX = {
 
 COLLECTIONS = {
     "identities": IDENTITIES,
+    "calibration": CALIBRATION,
     "policies": POLICIES,
     "intents": INTENTS,
     "decisions": DECISIONS,
@@ -374,4 +436,8 @@ INDEXES = {
     "controls": [([("runId", 1), ("ts", -1)], {})],
     "runs": [([("state", 1)], {})],
     "outbox": [([("runId", 1), ("state", 1)], {})],
+    # Compound unique: the same signature string legitimately appears once as a single
+    # feature and once as a one-element conjunction, so scope is part of the identity.
+    "calibration": [([("signature", 1), ("scope", 1)], {"unique": True}),
+                    ([("scope", 1), ("accuracy", 1)], {})],
 }

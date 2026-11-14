@@ -19,9 +19,9 @@ IDENTITIES = [
         "displayName": "Evidence curation agent v3",
         "model": "extraction-pipeline-3.1",
         "allowedActions": ["claim.write", "rung.assert", "record.create",
-                           "approval.publish", "alert.send"],
+                           "approval.publish", "alert.send", "policy.propose"],
         "scope": {"indications": ["lung"], "jurisdictions": ["US", "CA"],
-                  "maxActionsPerRun": 25},
+                  "maxActionsPerRun": 60},
         "active": True, "createdAt": NOW,
     },
     {
@@ -52,7 +52,8 @@ IDENTITIES = [
         "displayName": "Ester C, diagnostics subject expert",
         "model": None,
         "allowedActions": ["claim.verify", "claim.write", "rung.assert",
-                           "record.create", "run.halt", "revert.apply"],
+                           "record.create", "run.halt", "revert.apply",
+                           "policy.activate"],
         "scope": {"indications": ["lung", "breast", "colorectal"],
                   "jurisdictions": ["US", "CA", "EU"], "maxActionsPerRun": None},
         "active": True, "createdAt": NOW,
@@ -62,7 +63,8 @@ IDENTITIES = [
         "kind": "human",
         "displayName": "Medical Affairs compliance reviewer",
         "model": None,
-        "allowedActions": ["run.halt", "revert.apply", "claim.verify"],
+        "allowedActions": ["run.halt", "revert.apply", "claim.verify",
+                           "policy.activate"],
         "scope": {"indications": ["lung", "breast", "colorectal"],
                   "jurisdictions": ["US", "CA", "EU"], "maxActionsPerRun": None},
         "active": True, "createdAt": NOW,
@@ -70,6 +72,18 @@ IDENTITIES = [
 ]
 
 POLICIES = [
+    {
+        "_id": "pol:deny_agent_loosening:1", "ruleId": "deny_agent_loosening", "version": 1,
+        "appliesTo": ["policy.propose"],
+        "effect": "deny", "predicate": "agent_proposes_allow", "params": {},
+        "reason": "An agent may not propose a rule that widens its own permissions. "
+                  "Learned rules may only tighten.",
+        "grounding": "The ratchet. An agent that can learn its way to more permissions has "
+                     "no ceiling, so learning is restricted to deny and escalate. The "
+                     "policies validator refuses a loosening proposal as well, so the "
+                     "constraint survives this rule being deleted.",
+        "active": True, "createdAt": NOW,
+    },
     {
         "_id": "pol:require_source_quote:1", "ruleId": "require_source_quote", "version": 1,
         "appliesTo": ["claim.write", "rung.assert", "record.create"],
